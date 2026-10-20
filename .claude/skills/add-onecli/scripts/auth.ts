@@ -54,6 +54,16 @@ function saveSecret(value: string, baseUrl?: string): void {
   });
 }
 
+function readEnvKey(key: string): string | undefined {
+  const file = path.join(process.cwd(), '.env');
+  try {
+    const content = fs.readFileSync(file, 'utf8');
+    return content.match(new RegExp(`^${key}=(.+)$`, 'm'))?.[1]?.trim();
+  } catch {
+    return undefined;
+  }
+}
+
 function saveEnv(key: string, value: string): void {
   const file = path.join(process.cwd(), '.env');
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
@@ -108,10 +118,18 @@ export async function run(): Promise<void> {
     await entry.runAuth();
     return;
   }
-  const customUrl = process.env.NANOCLAW_ANTHROPIC_BASE_URL?.trim();
+  const customUrl = process.env.NANOCLAW_ANTHROPIC_BASE_URL?.trim() || readEnvKey('ANTHROPIC_BASE_URL');
   const customToken = process.env.NANOCLAW_ANTHROPIC_AUTH_TOKEN?.trim();
   if (customUrl && customToken) {
     saveSecret(customToken, customUrl);
+    saveEnv('ANTHROPIC_BASE_URL', customUrl);
+    p.log.success('Claude endpoint connected.');
+    return;
+  }
+  // A self-hosted Anthropic-compatible endpoint (Ollama, a local proxy) takes
+  // no key, so there is no secret to store and nothing to prompt for. The
+  // gateway hands the URL to agents from .env (withProviderEnv).
+  if (customUrl && new URL(customUrl).hostname !== 'api.anthropic.com') {
     saveEnv('ANTHROPIC_BASE_URL', customUrl);
     p.log.success('Claude endpoint connected.');
     return;

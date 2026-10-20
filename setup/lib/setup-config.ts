@@ -161,8 +161,8 @@ export const CONFIG: Entry[] = [
   },
   {
     key: 'yes',
-    label: 'Uninstall without prompts',
-    help: 'With --uninstall: delete everything found without asking (orphan vault agents are still kept).',
+    label: 'Accept defaults',
+    help: 'Take the default answer at setup prompts that have one. With --uninstall: delete everything found without asking (orphan vault agents are still kept).',
     surface: 'flag',
     type: 'boolean',
     default: false,

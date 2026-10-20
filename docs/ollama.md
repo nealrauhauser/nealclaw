@@ -2,6 +2,22 @@
 
 NanoClaw agents can be routed to a local [Ollama](https://ollama.com) instance instead of the Anthropic API. This cuts API costs to zero and keeps all inference on your hardware.
 
+## Fresh Install in One Command
+
+On a new clone, with Ollama running on the same host:
+
+```bash
+bash setup/ollama.sh <model>        # e.g. qwen3-coder:30b, gpt-oss:120b-cloud
+```
+
+It checks Ollama, pulls the model if missing, writes `ANTHROPIC_BASE_URL`, `NANOCLAW_DEFAULT_MODEL` and `TZ` to `.env`, then runs the normal setup (`nanoclaw.sh --yes`) with OneCLI as the gateway and no Anthropic credential. Extra arguments go to `nanoclaw.sh`. Add a messaging channel afterwards with `/add-slack`, `/add-telegram`, etc.
+
+- **Linux:** containers reach the host over the Docker bridge, which a default `127.0.0.1` Ollama bind refuses. The script offers to add a systemd drop-in setting `OLLAMA_HOST=0.0.0.0:11434`. Ollama has no auth, so firewall that port to trusted networks.
+- **Context size:** the agent's base prompt is ~16k tokens. Use a model with ≥32k context (64k+ is better). Raw `hf.co/...` tags default to a small context; wrap them in a Modelfile with `PARAMETER num_ctx 32768`.
+- **Keep the model loaded:** Ollama unloads idle models after 5 minutes, dropping the prompt cache. Set `OLLAMA_KEEP_ALIVE=-1` if RAM allows.
+
+The rest of this page covers routing an existing agent group to Ollama by hand.
+
 ## How It Works
 
 Ollama exposes an Anthropic-compatible `/v1/messages` endpoint. The Claude Code CLI (which runs inside agent containers) uses the Anthropic SDK, which reads `ANTHROPIC_BASE_URL` to find the API host. Pointing that variable at Ollama is all that's needed — no new provider code, no changes to the agent runtime.

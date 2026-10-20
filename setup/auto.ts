@@ -180,7 +180,7 @@ async function main(): Promise<void> {
   // work begins. Default lands on standard so Enter is the happy path.
   // On sg re-exec, the user already chose — skip straight to standard.
   let startChoice: 'default' | 'advanced' = 'default';
-  if (process.env.NANOCLAW_REEXEC_SG !== '1') {
+  if (process.env.NANOCLAW_REEXEC_SG !== '1' && !assumeYes()) {
     startChoice = ensureAnswer(
       await brightSelect<'default' | 'advanced'>({
         message: 'How would you like to begin?',
@@ -614,22 +614,24 @@ async function main(): Promise<void> {
             ),
           );
         }
-        const next = ensureAnswer(
-          await brightSelect<'continue' | 'chat'>({
-            message: 'What next?',
-            options: [
-              {
-                value: 'continue',
-                label: 'Continue with setup',
-                hint: 'recommended',
-              },
-              {
-                value: 'chat',
-                label: 'Pause here and chat with your agent from the terminal',
-              },
-            ],
-          }),
-        ) as 'continue' | 'chat';
+        const next = assumeYes()
+          ? 'continue'
+          : (ensureAnswer(
+              await brightSelect<'continue' | 'chat'>({
+                message: 'What next?',
+                options: [
+                  {
+                    value: 'continue',
+                    label: 'Continue with setup',
+                    hint: 'recommended',
+                  },
+                  {
+                    value: 'chat',
+                    label: 'Pause here and chat with your agent from the terminal',
+                  },
+                ],
+              }),
+            ) as 'continue' | 'chat');
         setupLog.userInput('first_chat_choice', next);
         if (next === 'chat') {
           const terminalAgentName = `${displayName!}'s Terminal`;
@@ -862,6 +864,11 @@ async function main(): Promise<void> {
   }
 }
 
+/** `--yes`: take the default answer wherever setup would otherwise ask. */
+function assumeYes(): boolean {
+  return process.env.NANOCLAW_YES === 'true';
+}
+
 // ─── first-chat step ───────────────────────────────────────────────────
 
 /**
@@ -887,8 +894,9 @@ async function confirmAssistantResponds(): Promise<{ outcome: PingOutcome; wait:
 
   const { outcome, keptWaiting, skipped } = await waitForFirstReply({
     ping,
-    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    interactive: assumeYes() || Boolean(process.stdin.isTTY && process.stdout.isTTY),
     ask: async (waitedMs, signal) => {
+      if (assumeYes()) return 'wait';
       display.pause();
       const choice = await askKeepWaiting(display.seenStage, waitedMs, signal);
       // Otherwise the wait is over; the closing lines print without a spinner.

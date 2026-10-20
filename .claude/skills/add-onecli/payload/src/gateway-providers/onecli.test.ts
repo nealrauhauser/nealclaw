@@ -5,6 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { GatewayApprovalRequest, GatewaySessionInput } from './gateway-provider-registry.js';
 
+// The host runs with its real `.env` loaded into process.env, and the provider
+// prefers those values over readEnvFile(). Clear them here so the mocked
+// readEnvFile() fixture below is what actually flows through — otherwise an
+// operator's own ANTHROPIC_BASE_URL (e.g. a local Ollama backend) leaks into the
+// endpoint test and cascades into the timer test that runs after it.
+vi.hoisted(() => {
+  for (const key of [
+    'ONECLI_URL',
+    'ONECLI_API_KEY',
+    'ONECLI_GATEWAY_CONTAINER',
+    'ANTHROPIC_BASE_URL',
+    'ONECLI_CONSOLE_URL',
+  ]) {
+    delete process.env[key];
+  }
+});
+
 const sdk = vi.hoisted(() => ({
   ensureAgent: vi.fn(async () => ({ created: false })),
   getContainerConfig: vi.fn(async () => ({
