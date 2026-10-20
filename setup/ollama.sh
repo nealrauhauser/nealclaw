@@ -5,9 +5,15 @@
 #   bash setup/ollama.sh <model> [nanoclaw.sh flags...]
 #
 # Ollama serves the Anthropic Messages API, so agents point ANTHROPIC_BASE_URL
-# at it and no key is ever stored. This script checks Ollama, makes sure the
-# model is present, seeds .env, then runs the normal setup (nanoclaw.sh) with
-# every question answered. Add a messaging channel afterwards (/add-slack, …).
+# at it and no key is ever stored. This script gets Ollama and the model ready,
+# seeds .env, then runs the normal setup (nanoclaw.sh) with every question
+# answered. Add a messaging channel afterwards (/add-slack, …).
+#
+#   macOS: needs Homebrew. Installs OrbStack as the Docker runtime (selected
+#          even if Docker Desktop is present) and Ollama when missing; setup
+#          itself installs Node and pnpm.
+#   Linux: expects Ollama running; offers to rebind it beyond loopback so
+#          agent containers can reach it. Setup installs Docker if missing.
 #
 # Env:
 #   OLLAMA_URL  where this host reaches Ollama (default http://127.0.0.1:11434)
@@ -34,16 +40,63 @@ AGENT_URL="http://host.docker.internal:${OLLAMA_PORT}"
 
 die() { echo "error: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
+# wait_for <seconds> <command...>: poll until the command succeeds.
+wait_for() {
+  local n="$1"
+  shift
+  for _ in $(seq "$n"); do
+    "$@" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+ollama_up() { curl -fsS -m 2 "$OLLAMA_URL/api/version"; }
+
+# ─── macOS: OrbStack + Ollama via Homebrew ─────────────────────────────
+if [ "$(uname -s)" = "Darwin" ]; then
+  command -v brew >/dev/null || die "Homebrew is required on macOS: https://brew.sh"
+  export PATH="$HOME/.orbstack/bin:$PATH"
+
+  # OrbStack, never Docker Desktop. Setup would install Docker Desktop when no
+  # docker CLI exists and only knows how to start that one, so OrbStack must be
+  # installed, selected and running before setup looks.
+  if [ ! -d /Applications/OrbStack.app ]; then
+    say "Installing OrbStack…"
+    brew install --cask orbstack
+  fi
+  # Probe OrbStack by name: a running Docker Desktop would answer a bare
+  # `docker info` through its own context.
+  if ! docker --context orbstack info >/dev/null 2>&1; then
+    say "Starting OrbStack…"
+    orb start >/dev/null 2>&1 || open -a OrbStack
+    if ! wait_for 120 docker --context orbstack info; then
+      die "OrbStack did not start. Open it once from Applications, then retry."
+    fi
+  fi
+  # The docker CLI (and the NanoClaw service) follow the current context.
+  docker context use orbstack >/dev/null 2>&1
+  say "Docker runtime: OrbStack"
+
+  if ! ollama_up >/dev/null 2>&1; then
+    if ! command -v ollama >/dev/null; then
+      say "Installing Ollama…"
+      brew install ollama
+    fi
+    say "Starting Ollama…"
+    if [ -d /Applications/Ollama.app ]; then open -a Ollama; else brew services start ollama; fi
+    wait_for 30 ollama_up || die "Ollama did not start at $OLLAMA_URL."
+  fi
+fi
 
 # ─── Ollama is up ──────────────────────────────────────────────────────
-if ! curl -fsS -m 5 "$OLLAMA_URL/api/version" >/dev/null; then
+if ! ollama_up >/dev/null 2>&1; then
   die "Ollama is not answering at $OLLAMA_URL. Install/start it (https://ollama.com/download) and retry."
 fi
 say "Ollama is running at $OLLAMA_URL"
 
 # ─── Linux: containers can reach it ────────────────────────────────────
-# Docker Desktop / OrbStack forward host.docker.internal to the host's
-# loopback; on Linux it is the docker bridge, which a 127.0.0.1 bind refuses.
+# OrbStack forwards host.docker.internal to the host's loopback; on Linux it
+# is the docker bridge, which a 127.0.0.1 bind refuses.
 if [ "$(uname -s)" = "Linux" ] && command -v ss >/dev/null &&
   ! ss -ltnH "sport = :$OLLAMA_PORT" | awk '{print $4}' | grep -qvE '^(127\.0\.0\.1|\[::1\]):'; then
   echo "Ollama listens on loopback only, so agent containers cannot reach it."
@@ -55,7 +108,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v ss >/dev/null &&
       sudo install -D -m 644 /dev/stdin /etc/systemd/system/ollama.service.d/nanoclaw.conf
     sudo systemctl daemon-reload
     sudo systemctl restart ollama
-    for _ in $(seq 20); do curl -fsS -m 1 "$OLLAMA_URL/api/version" >/dev/null 2>&1 && break; sleep 0.5; done
+    wait_for 15 ollama_up || die "Ollama did not come back after the restart."
     say "Ollama rebound to 0.0.0.0:$OLLAMA_PORT. It has no auth: firewall port $OLLAMA_PORT to trusted networks."
   else
     die "Start Ollama with OLLAMA_HOST=0.0.0.0:$OLLAMA_PORT and retry."
