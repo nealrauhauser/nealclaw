@@ -4,17 +4,18 @@ NanoClaw agents can be routed to a local [Ollama](https://ollama.com) instance i
 
 ## Fresh Install in One Command
 
-On a new clone (macOS needs [Homebrew](https://brew.sh); on Linux, have Ollama running):
+On a new clone (macOS needs [Homebrew](https://brew.sh)):
 
 ```bash
-bash setup/ollama.sh <model>        # e.g. qwen3-coder:30b, gpt-oss:120b-cloud
+bash setup/ollama.sh                # asks which model
+bash setup/ollama.sh <model>        # or name it, e.g. gpt-oss:120b-cloud
 ```
 
-It checks Ollama, pulls the model if missing, writes `ANTHROPIC_BASE_URL`, `NANOCLAW_DEFAULT_MODEL` and `TZ` to `.env`, then runs the normal setup (`nanoclaw.sh --yes`) with OneCLI as the gateway and no Anthropic credential. Extra arguments go to `nanoclaw.sh`. Add a messaging channel afterwards with `/add-slack`, `/add-telegram`, etc.
+Without a model it offers Ollama Cloud's `gpt-oss:120b-cloud` (recommended; needs a free ollama.com sign-in, which the script starts) and the local models that fit this machine's GPU memory — half of unified memory on Apple silicon, VRAM on NVIDIA/AMD. It installs and starts Ollama when missing, pulls the model, checks it answers, writes `ANTHROPIC_BASE_URL`, `NANOCLAW_DEFAULT_MODEL` and `TZ` to `.env`, then runs the normal setup (`nanoclaw.sh --yes`) with OneCLI as the gateway and no Anthropic credential. Extra arguments go to `nanoclaw.sh`. Add a messaging channel afterwards with `/add-slack`, `/add-telegram`, etc.
 
 - **macOS:** installs OrbStack as the Docker runtime (and selects its `docker context`, even if Docker Desktop is also installed) and installs/starts Ollama via Homebrew when missing. Setup installs Node and pnpm.
 - **Linux:** containers reach the host over the Docker bridge, which a default `127.0.0.1` Ollama bind refuses. The script offers to add a systemd drop-in setting `OLLAMA_HOST=0.0.0.0:11434`. Ollama has no auth, so firewall that port to trusted networks.
-- **Context size:** the agent's base prompt is ~16k tokens. Use a model with ≥32k context (64k+ is better). Raw `hf.co/...` tags default to a small context; wrap them in a Modelfile with `PARAMETER num_ctx 32768`.
+- **Context size:** the agent's base prompt is ~16k tokens, far above Ollama's default local context. For a local model that sets no `num_ctx`, the script creates a `nanoclaw-<model>` copy with a 32k context (64k with ≥32 GB) and uses that.
 - **Keep the model loaded:** Ollama unloads idle models after 5 minutes, dropping the prompt cache. Set `OLLAMA_KEEP_ALIVE=-1` if RAM allows.
 
 The rest of this page covers routing an existing agent group to Ollama by hand.
